@@ -1,0 +1,10 @@
+{
+  "model": "opus",
+  "enabledPlugins": {
+    "context7@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "pinecone@claude-plugins-official": true,
+    "explanatory-output-style@claude-plugins-official": true
+  },
+  "effortLevel": "high"
+}
