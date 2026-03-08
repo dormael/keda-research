@@ -65,7 +65,7 @@ flowchart TD
         (Kafka, SQS, RabbitMQ 등)"] <-- "직접 폴링" --> KO["keda-operator"]
     end
 
-    KO -- "이벤트 감지 시 0→1 활성화" --> SO["ScaledObject / ScaledJob"]
+    row1 -- "이벤트 감지 시 0→1 활성화" --> SO["ScaledObject / ScaledJob"]
 
     subgraph row2[" "]
         direction LR
@@ -73,8 +73,8 @@ flowchart TD
         (외부 메트릭 변환)"] --> HPA["HPA"]
     end
 
-    SO -- "1→N 스케일링 위임" --> MA
-    HPA --> Pod["Pod 수 조절"]
+    SO -- "1→N 스케일링 위임" --> row2
+    row2 --> Pod["Pod 수 조절"]
 
     classDef keda fill:#e8f0fe,stroke:#4a86c8
     classDef plain fill:#f5f5f5,stroke:#999
