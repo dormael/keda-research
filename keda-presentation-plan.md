@@ -127,32 +127,72 @@ Kubernetes **ValidatingWebhookConfiguration**을 활용하여 KEDA CRD의 생성
 
 ### 3.2 스케일링 동작 흐름
 
+#### Sequence Diagram: Scaling Lifecycle
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Operator as keda-operator
+    participant EventSrc as External Event Source
+    participant MetricsSrv as keda-metrics-apiserver
+    participant HPA
+    participant Pods as Deployment / Pods
+
+    Note over Operator,EventSrc: Phase 1 — Polling Loop
+    loop Every pollingInterval
+        Operator->>EventSrc: Poll via Scaler
+        EventSrc-->>Operator: {isActive, metrics}
+    end
+
+    Note over Operator,Pods: Phase 2a — 0→1 (Operator Direct)
+    Operator->>Pods: K8s Scale API (replicas: 0→1)
+    Operator->>HPA: Create HPA (External Metrics)
+
+    Note over MetricsSrv,HPA: Phase 2b — 1→N (HPA via Metrics Server)
+    HPA->>MetricsSrv: Query external.metrics.k8s.io
+    MetricsSrv->>Operator: gRPC GetMetrics()
+    Operator-->>MetricsSrv: ExternalMetricValue
+    MetricsSrv-->>HPA: Metric response
+    HPA->>Pods: Scale API (replicas: N)
+
+    Note over Operator,Pods: Phase 3 — N→0 (Operator Direct)
+    Operator->>Pods: Scale API (replicas: 0)
+```
+
+#### Flowchart: Scaling Decision Logic
+
 ```mermaid
 flowchart TD
-    subgraph row1[" "]
-        direction LR
-        ES["외부 이벤트 소스
-        (Kafka, SQS, RabbitMQ 등)"] <-- "직접 폴링" --> KO["keda-operator"]
-    end
+    Poll[keda-operator<br/>Poll Event Source] --> Active{isActive?}
 
-    row1 -- "이벤트 감지 시 0→1 활성화" --> SO["ScaledObject / ScaledJob"]
+    Active -->|Yes| Rep{Replicas?}
+    Active -->|No + Cooldown| Zero["keda-operator<br/>Scale to 0<br/>(K8s Scale API)"]
 
-    subgraph row2[" "]
-        direction LR
-        MA["keda-metrics-apiserver
-        (외부 메트릭 변환)"] --> HPA["HPA"]
-    end
+    Rep -->|"== 0"| One["keda-operator<br/>Scale 0→1<br/>(K8s Scale API)"]
+    Rep -->|"≥ 1"| HPA
 
-    SO -- "1→N 스케일링 위임" --> row2
-    row2 --> Pod["Pod 수 조절"]
+    One --> HPA["keda-metrics-apiserver<br/>Serve metrics to HPA"]
+    HPA --> N["HPA<br/>Scale 1→N"]
 
-    classDef keda fill:#e8f0fe,stroke:#4a86c8
-    classDef plain fill:#f5f5f5,stroke:#999
-    class KO,SO,MA keda
-    class ES,HPA,Pod plain
-    style row1 fill:none,stroke:none
-    style row2 fill:none,stroke:none
+    Zero --> Poll
+    N --> Poll
+
+    classDef operator fill:#e8f0fe,stroke:#1565c0,color:#000
+    classDef metrics fill:#ede7fe,stroke:#6a1b9a,color:#000
+    classDef hpa fill:#f5f5f5,stroke:#616161,color:#000
+
+    class Poll,Active,Rep,One,Zero operator
+    class HPA metrics
+    class N hpa
 ```
+
+#### Component Responsibility Summary
+
+| Phase | Component | Action |
+|-------|-----------|--------|
+| **Poll & 0↔1** | `keda-operator` | Poll event sources, directly scale 0↔1 via K8s Scale API |
+| **Metric Serving** | `keda-metrics-apiserver` | Serve normalized metrics via `external.metrics.k8s.io` for HPA |
+| **1→N Scaling** | Kubernetes HPA | Calculate desired replicas and scale via Scale API |
 
 ### 참고 링크
 - [KEDA Concepts (공식)](https://keda.sh/docs/2.19/concepts/)
